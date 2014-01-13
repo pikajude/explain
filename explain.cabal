@@ -4,6 +4,12 @@
 name:                explain
 version:             0.1.0.0
 synopsis:            Show how expressions are parsed
+description:
+  @explain expr@ parenthesizes @expr@ to show you how it's parsed.
+  .
+  @explain@ has a large number of extensions enabled by default: multi-parameter typeclasses, Template Haskell, arrow
+  syntax, and so on. This is mainly for convenience. If necessary, flags to turn certain extension on and off will be
+  added in future versions.
 homepage:            https://github.com/joelteon/explain
 license:             MIT
 license-file:        LICENSE
