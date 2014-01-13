@@ -24,6 +24,7 @@ main = do
                                , EnableExtension RecordPuns
                                , EnableExtension RecordWildCards
                                , EnableExtension ScopedTypeVariables
+                               , EnableExtension TemplateHaskell
                                , EnableExtension TypeFamilies
                                , EnableExtension UnboxedTuples
                                ] }
@@ -63,10 +64,19 @@ explain (Lambda _ ps e) = parens $ ("\\" <> fillSep (map explainP ps)) <+> "->" 
 -- do
 explain (Do sms) = fillSep $ "do" : lbrace : punctuate semi (map explainStmt sms) ++ [rbrace]
 
+-- let
+explain (Let bs e) = fillSep ["let", bds, "in", explain e] where
+    bds = cat $ case explainB bs of
+              [] -> []
+              qs -> lbrace : " " : punctuate (semi <> " ") qs ++ [" ", rbrace]
+
+explain (If a b c) = fillSep ["if", explain a, "then", explain b, "else", explain c]
+
 explainStmt :: Stmt -> Doc
 explainStmt (Generator _ p e) = fillSep [explainP p, "<-", explain e]
 explainStmt (Qualifier e) = explain e
 explainStmt (LetStmt bs) = fillSep $ "let" : lbrace : punctuate semi (explainB bs) ++ [rbrace]
+explainStmt (RecStmt _) = error "Recursive statements not yet supported."
 
 explainB :: Binds -> [Doc]
 explainB (BDecls ds) = map explainDec ds
@@ -75,19 +85,54 @@ explainB (IPBinds is) = map (\(IPBind _ n e) -> fillSep [explainIname n, "<-", e
 explainDec :: Decl -> Doc
 explainDec (TypeSig _ ns t) =
     fillSep [cat $ punctuate comma (map (\n -> unName False n empty) ns), "::", explainT t]
-explainDec (PatBind _ p t r bds) = fillSep $ pat ++ explainRhs r ++ bs
+explainDec (PatBind _ p t r bds) = fillSep $ pat ++ explainRhs r ++ explainWhere bds
     where pat = case t of
                     Nothing -> [explainP p]
                     Just ty -> [explainP p, "::", explainT ty]
-          bs = case explainB bds of
-                   [] -> []
-                   bq -> "where" : lbrace : bq ++ [rbrace]
+explainDec TypeDecl{}         = error "Type declarations not supported in let bindings."
+explainDec TypeFamDecl{}      = error "Type declarations not supported in let bindings."
+explainDec DataDecl{}         = error "Data declarations not supported in let bindings."
+explainDec GDataDecl{}        = error "Data declarations not supported in let bindings."
+explainDec DataFamDecl{}      = error "Data declarations not supported in let bindings."
+explainDec TypeInsDecl{}      = error "Type instance declarations not supported in let bindings."
+explainDec DataInsDecl{}      = error "Data instance declarations not supported in let bindings."
+explainDec GDataInsDecl{}     = error "Data instance declarations not supported in let bindings."
+explainDec ClassDecl{}        = error "Class declarations not supported in let bindings."
+explainDec InstDecl{}         = error "Instance declarations not supported in let bindings."
+explainDec DerivDecl{}        = error "`Deriving' clauses not supported in let bindings."
+explainDec InfixDecl{}        = error "Fixity declarations not supported in let bindings."
+explainDec DefaultDecl{}      = error "Default type declarations not supported in let bindings."
+explainDec SpliceDecl{}       = error "Splice declarations not supported in let bindings."
+explainDec (FunBind ms)       = cat . punctuate (semi <> " ") $ map explainM ms
+explainDec ForImp{}           = error "Foreign imports not supported in let bindings."
+explainDec ForExp{}           = error "Foreign exports not supported in let bindings."
+explainDec RulePragmaDecl{}   = empty
+explainDec DeprPragmaDecl{}   = empty
+explainDec WarnPragmaDecl{}   = empty
+explainDec InlineSig{}        = empty
+explainDec InlineConlikeSig{} = empty
+explainDec SpecSig{}          = empty
+explainDec SpecInlineSig{}    = empty
+explainDec InstSig{}          = empty
+explainDec AnnPragma{}        = empty
+
+explainM :: Match -> Doc
+explainM (Match _ n ps Nothing rh bs) = fillSep $
+    unName False n empty : map explainP ps ++ explainRhs rh ++ explainWhere bs
+explainM (Match _ _ _ t _ _) = error $ show t
+
+explainWhere :: Binds -> [Doc]
+explainWhere bs = case explainB bs of
+    [] -> []
+    bq -> "where" : lbrace : bq ++ [rbrace]
 
 explainRhs :: Rhs -> [Doc]
 explainRhs (UnGuardedRhs e) = ["=", explain e]
-explainRhs (GuardedRhss gs) = map explainGR gs
+explainRhs (GuardedRhss gs) = "|" : map explainGR gs
 
-explainGR (GuardedRhs _ stmts e) = undefined
+explainGR :: GuardedRhs -> Doc
+explainGR (GuardedRhs _ stmts e) = fillSep $
+    punctuate comma (map explainStmt stmts) ++ ["=", explain e]
 
 explainP :: Pat -> Doc
 explainP (PVar n)            = unName False n empty
