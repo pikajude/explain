@@ -14,17 +14,21 @@ main = do
         ["-"] -> getContents
         xs -> return $ unwords xs
     case parseWithMode defaultParseMode
-                { extensions = [ EnableExtension BangPatterns
+                { extensions = [ EnableExtension Arrows
+                               , EnableExtension BangPatterns
                                , EnableExtension ImplicitParams
                                , EnableExtension KindSignatures
                                , EnableExtension MagicHash
                                , EnableExtension MultiParamTypeClasses
                                , EnableExtension NPlusKPatterns
+                               , EnableExtension QuasiQuotes
                                , EnableExtension RankNTypes
                                , EnableExtension RecordPuns
                                , EnableExtension RecordWildCards
                                , EnableExtension ScopedTypeVariables
                                , EnableExtension TemplateHaskell
+                               , EnableExtension TransformListComp
+                               , EnableExtension TupleSections
                                , EnableExtension TypeFamilies
                                , EnableExtension UnboxedTuples
                                ] }
@@ -71,6 +75,95 @@ explain (Let bs e) = fillSep ["let", bds, "in", explain e] where
               qs -> lbrace : " " : punctuate (semi <> " ") qs ++ [" ", rbrace]
 
 explain (If a b c) = fillSep ["if", explain a, "then", explain b, "else", explain c]
+
+explain (Case e as) = fillSep $ "case" : explain e : "of" : lbrace : punctuate semi (map explainAlt as) ++ [rbrace]
+
+-- mdo
+explain (MDo sms) = fillSep $ "mdo" : lbrace : punctuate semi (map explainStmt sms) ++ [rbrace]
+
+explain (Tuple b es) = boxUp b . cat . punctuate comma $ map explain es
+
+explain (TupleSection b es) = boxUp b . cat . punctuate comma $ map (maybe empty explain) es
+
+explain (List es) = brackets . cat . punctuate comma $ map explain es
+
+explain (Paren e) = parens $ explain e
+
+explain (LeftSection e q) = parens . fillSep $ [explain e, explainQop q]
+
+explain (RightSection q e) = parens . fillSep $ [explainQop q, explain e]
+
+explain (RecConstr qn fus) = fillSep $ explainQname False qn : lbrace : punctuate comma (map explainFU fus) ++ [rbrace]
+
+explain (RecUpdate r fus) = fillSep $ explain r : lbrace : punctuate comma (map explainFU fus) ++ [rbrace]
+
+explain (EnumFrom e) = brackets $ fillSep [explain e, ".."]
+
+explain (EnumFromThen e t) = brackets . fillSep $ [explain e <> ",", explain t, ".."]
+
+explain (EnumFromTo e n) = brackets $ fillSep [explain e, "..", explain n]
+
+explain (EnumFromThenTo e t n) = brackets $ fillSep [explain e <> ",", explain t, "..", explain n]
+
+explain (ListComp e qs) = brackets . fillSep $ explain e : "|" : punctuate comma (map explainQS qs)
+
+explain (ParComp e qss) = brackets . fillSep $ explain e : "|" : punctuate " |" (map (fillSep . punctuate comma . map explainQS) qss)
+
+explain (ExpTypeSig _ e t) = parens . fillSep $ [explain e, "::", explainT t]
+
+explain (VarQuote qn) = "'" <> explainQname False qn
+
+explain (TypQuote qn) = "''" <> explainQname False qn
+
+explain (BracketExp br) = explainBracket br
+
+explain (SpliceExp sp) = explainSplice sp
+
+explain (QuasiQuote s st) = fillSep ["[" <> string s <> "|", string st, "|]"]
+
+explain XTag{}       = error "HSP not yet supported."
+explain XETag{}      = error "HSP not yet supported."
+explain XPcdata{}    = error "HSP not yet supported."
+explain XExpTag{}    = error "HSP not yet supported."
+explain XChildTag{}  = error "HSP not yet supported."
+explain CorePragma{} = error "CORE pragmas not yet supported."
+explain SCCPragma{}  = error "SCC pragmas not yet supported."
+explain GenPragma{}  = error "GENERATED pragmas not yet supported."
+
+explain (Proc _ p e) = fillSep ["proc", explainP p, "->", explain e]
+
+explain (LeftArrApp e1 e2) = parens $ fillSep [explain e1, "-<", explain e2]
+
+explain (RightArrApp e1 e2) = parens $ fillSep [explain e1, ">-", explain e2]
+
+explain (LeftArrHighApp e1 e2) = parens $ fillSep [explain e1, "-<<", explain e2]
+
+explain (RightArrHighApp e1 e2) = parens $ fillSep [explain e1, ">>-", explain e2]
+
+explainSplice :: Splice -> Doc
+explainSplice (IdSplice s) = "$" <> string s
+explainSplice (ParenSplice e) = "$" <> parens (explain e)
+
+explainQS :: QualStmt -> Doc
+explainQS (QualStmt st) = explainStmt st
+explainQS (ThenTrans e) = fillSep ["then", explain e]
+explainQS (ThenBy e r) = fillSep ["then", explain e, "by", explain r]
+explainQS (GroupBy e) = fillSep ["then group by", explain e]
+explainQS (GroupUsing e) = fillSep ["then group using", explain e]
+explainQS (GroupByUsing e1 e) = fillSep ["then group by", explain e1, "using", explain e]
+
+explainFU :: FieldUpdate -> Doc
+explainFU (FieldUpdate q e) = fillSep [explainQname False q, "=", explain e]
+explainFU (FieldPun n) = unName False n empty
+explainFU FieldWildcard = ".."
+
+explainAlt :: Alt -> Doc
+explainAlt (Alt _ p gs bs) = fillSep $ explainP p : explainGAs gs ++ explainB bs
+
+explainGAs :: GuardedAlts -> [Doc]
+explainGAs (UnGuardedAlt e) = ["->", explain e]
+explainGAs (GuardedAlts gs) = map
+    (\(GuardedAlt _ ss e) -> fillSep $ "|" : punctuate comma (map explainStmt ss) ++ ["->", explain e]) gs
 
 explainStmt :: Stmt -> Doc
 explainStmt (Generator _ p e) = fillSep [explainP p, "<-", explain e]
@@ -163,7 +256,7 @@ explainP (PBangPat p)        = "!" <> explainP p
 explainT :: Type -> Doc
 explainT (TyForall (Just ns) _ t) = hsep ("forall" : map explainTVB ns) <+> "." <+> explainT t
 explainT (TyForall Nothing ass t) = fillSep [cat (punctuate comma $ map explainAsst ass), "=>", explainT t]
-explainT (TyFun t1 t2)            = explainT t1 <+> explainT t2
+explainT (TyFun t1 t2)            = fillSep [explainT t1, "->", explainT t2]
 explainT (TyTuple box ts)         = boxUp box . cat . punctuate comma $ map explainT ts
 explainT (TyList t)               = braces $ explainT t
 explainT (TyApp t1 t2)            = parens $ explainT t1 <+> explainT t2
@@ -230,6 +323,12 @@ explainLit (PrimString s) = explainLit (String s) <> "#"
 explainQop :: QOp -> Doc
 explainQop (QVarOp n) = explainQname True n
 explainQop (QConOp n) = explainQname True n
+
+explainBracket :: Bracket -> Doc
+explainBracket (ExpBracket e) = fillSep ["[|", explain e, "|]"]
+explainBracket (PatBracket p) = fillSep ["[p|", explainP p, "|]"]
+explainBracket (TypeBracket t) = fillSep ["[t|", explainT t, "|]"]
+explainBracket (DeclBracket ds) = fillSep $ "[d|" : punctuate semi (map explainDec ds) ++ ["|]"]
 
 -- name to string
 unName :: Bool -> Name -> Doc -> Doc
