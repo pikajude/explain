@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                explain
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Show how expressions are parsed
 description:
   @explain expr@ parenthesizes @expr@ to show you how it's parsed.

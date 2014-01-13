@@ -34,7 +34,6 @@ main = do
                                ] }
             expS of
         ParseOk e -> do
-            print e
             displayIO stdout . renderPretty 0.4 10000 . hang 4 $ explain e
             putChar '\n'
         s@ParseFailed{} -> error $ show s
